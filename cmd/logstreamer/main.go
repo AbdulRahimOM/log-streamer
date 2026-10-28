@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/abdulrahimom/logstreamer/internal/config"
+	"github.com/abdulrahimom/logstreamer/internal/httpapi"
+	"github.com/abdulrahimom/logstreamer/internal/logstream"
 )
 
 func main() {
@@ -14,7 +20,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Phase 1 establishes and validates configuration. The HTTP server and
-	// source collectors are added in later phases.
-	fmt.Printf("configuration valid: %d sources configured; service not started (Phase 1)\n", len(cfg.Sources))
+	publisher := logstream.NewPublisher(cfg.Limits.RecentCapacity, cfg.Limits.ClientQueueCapacity)
+	server, err := httpapi.New(cfg, publisher)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "server configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log.Printf("LogStreamer listening on %s", cfg.Server.ListenAddress)
+	if err := server.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+		os.Exit(1)
+	}
 }

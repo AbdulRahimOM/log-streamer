@@ -16,4 +16,4 @@ Log records can contain attacker-controlled text and structured fields. The dash
 
 ## Phase status
 
-Phase 1 adds configuration and documents these boundaries. It does not start an HTTP server, access Docker, read log files, or accept ingestion requests.
+Phase 2 serves the dashboard, SSE stream, source list, and health endpoint. Source collectors and HTTP ingestion are not implemented until Phase 3; the service does not yet access Docker or read configured log files.

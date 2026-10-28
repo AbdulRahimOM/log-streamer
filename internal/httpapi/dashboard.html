@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LogStreamer</title>
+  <style>
+    :root { color-scheme: dark; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #101318; color: #d8dee9; }
+    body { margin: 0; padding: 24px; }
+    main { max-width: 1200px; margin: auto; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    #status { color: #8fbcbb; margin-bottom: 18px; }
+    #logs { border: 1px solid #303640; border-radius: 6px; min-height: 65vh; overflow: auto; background: #15191f; }
+    .row { display: grid; grid-template-columns: 180px 150px 76px 76px minmax(0, 1fr); gap: 12px; padding: 5px 10px; border-bottom: 1px solid #252a32; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .time, .origin { color: #7b8492; } .source { color: #88c0d0; } .level { font-weight: 700; }
+    .DEBUG { color: #b48ead; } .INFO { color: #a3be8c; } .WARN { color: #ebcb8b; } .ERROR { color: #bf616a; } .UNKNOWN { color: #d8dee9; }
+    #empty { padding: 24px; color: #7b8492; }
+    @media (max-width: 760px) { body { padding: 12px; } .row { grid-template-columns: 1fr 1fr; gap: 2px 10px; } .message { grid-column: 1 / -1; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>LogStreamer</h1>
+  <div id="status" role="status">Connecting…</div>
+  <section id="logs" aria-live="polite"><div id="empty">Waiting for log events…</div></section>
+</main>
+<script>
+  const logs = document.getElementById('logs');
+  const status = document.getElementById('status');
+  const stream = new EventSource('/api/logs/stream');
+  stream.onopen = () => { status.textContent = 'Connected'; };
+  stream.onerror = () => { status.textContent = 'Disconnected; reconnecting…'; };
+  stream.onmessage = (message) => {
+    let event;
+    try { event = JSON.parse(message.data); } catch (_) { return; }
+    const empty = document.getElementById('empty');
+    if (empty) empty.remove();
+    const row = document.createElement('div');
+    row.className = 'row';
+    const values = [
+      ['time', event.timestamp || ''], ['source', event.source || ''],
+      ['level ' + (event.level || 'UNKNOWN'), event.level || 'UNKNOWN'],
+      ['origin', event.origin || ''], ['message', event.message || '']
+    ];
+    for (const [className, value] of values) {
+      const cell = document.createElement('span');
+      cell.className = className;
+      cell.textContent = value;
+      row.appendChild(cell);
+    }
+    logs.appendChild(row);
+    while (logs.children.length > 501) logs.removeChild(logs.children[1]);
+    logs.scrollTop = logs.scrollHeight;
+  };
+</script>
+</body>
+</html>
