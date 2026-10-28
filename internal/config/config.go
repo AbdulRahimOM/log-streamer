@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -28,7 +29,8 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	ListenAddress string `yaml:"listen_address"`
+	ListenAddress      string   `yaml:"listen_address"`
+	CORSAllowedOrigins []string `yaml:"cors_allowed_origins,omitempty"`
 }
 
 type DockerConfig struct {
@@ -154,6 +156,16 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Server.ListenAddress) == "" {
 		return errors.New("server.listen_address must not be empty")
 	}
+	seenOrigins := make(map[string]struct{}, len(c.Server.CORSAllowedOrigins))
+	for _, origin := range c.Server.CORSAllowedOrigins {
+		if err := validateOrigin(origin); err != nil {
+			return fmt.Errorf("server.cors_allowed_origins: %w", err)
+		}
+		if _, exists := seenOrigins[origin]; exists {
+			return fmt.Errorf("server.cors_allowed_origins contains duplicate origin %q", origin)
+		}
+		seenOrigins[origin] = struct{}{}
+	}
 	if strings.TrimSpace(c.Docker.Host) == "" {
 		return errors.New("docker.host must not be empty")
 	}
@@ -203,6 +215,17 @@ func (c Config) Validate() error {
 		if err := validateSource(prefix, source); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateOrigin(origin string) error {
+	if strings.TrimSpace(origin) != origin || origin == "" || origin == "*" {
+		return fmt.Errorf("invalid origin %q: use an exact http(s) origin", origin)
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("invalid origin %q: use an exact http(s) origin without a path", origin)
 	}
 	return nil
 }

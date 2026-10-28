@@ -16,8 +16,12 @@ import (
 )
 
 func testServer(t *testing.T, maxClients int, keepalive string) (*Server, *logstream.Publisher) {
+	return testServerWithOrigins(t, maxClients, keepalive, nil)
+}
+
+func testServerWithOrigins(t *testing.T, maxClients int, keepalive string, origins []string) (*Server, *logstream.Publisher) {
 	t.Helper()
-	cfg := &config.Config{Server: config.ServerConfig{ListenAddress: ":8080"}, IngestToken: "test-token", Limits: config.LimitsConfig{SSEKeepalive: keepalive, MaxSSEClients: maxClients, IngestMaxBodyBytes: 1024, IngestMaxBatch: 2, MaxEventBytes: 128}, Sources: []config.SourceConfig{{Name: "api", Type: "docker"}, {Name: "external", Type: "http"}}}
+	cfg := &config.Config{Server: config.ServerConfig{ListenAddress: ":8080", CORSAllowedOrigins: origins}, IngestToken: "test-token", Limits: config.LimitsConfig{SSEKeepalive: keepalive, MaxSSEClients: maxClients, IngestMaxBodyBytes: 1024, IngestMaxBatch: 2, MaxEventBytes: 128}, Sources: []config.SourceConfig{{Name: "api", Type: "docker"}, {Name: "external", Type: "http"}}}
 	publisher := logstream.NewPublisher(10, 8)
 	server, err := New(cfg, publisher, collectors.NewRegistry(cfg.Sources))
 	if err != nil {
@@ -97,6 +101,67 @@ func TestHealthServicesAndDashboard(t *testing.T) {
 	}
 }
 
+func TestCORSExactOriginsAndRouteScopedPreflight(t *testing.T) {
+	server, _ := testServerWithOrigins(t, 2, "1s", []string{"http://localhost:5173"})
+
+	t.Run("allowed services GET", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/api/services", nil)
+		r.Header.Set("Origin", "http://localhost:5173")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusOK || w.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" || w.Header().Get("Vary") == "" {
+			t.Fatalf("status=%d headers=%v", w.Code, w.Header())
+		}
+		if w.Header().Get("Access-Control-Allow-Credentials") != "" {
+			t.Fatal("CORS must not allow credentials")
+		}
+	})
+
+	t.Run("reject unlisted origin", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/api/services", nil)
+		r.Header.Set("Origin", "https://attacker.example")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden || w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatalf("status=%d headers=%v", w.Code, w.Header())
+		}
+	})
+
+	t.Run("stream reconnect preflight", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodOptions, "/api/logs/stream", nil)
+		r.Header.Set("Origin", "http://localhost:5173")
+		r.Header.Set("Access-Control-Request-Method", "GET")
+		r.Header.Set("Access-Control-Request-Headers", "Last-Event-ID")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Headers") != "Last-Event-ID" || w.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
+			t.Fatalf("status=%d headers=%v", w.Code, w.Header())
+		}
+	})
+
+	t.Run("reject unapproved preflight header", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodOptions, "/api/services", nil)
+		r.Header.Set("Origin", "http://localhost:5173")
+		r.Header.Set("Access-Control-Request-Method", "GET")
+		r.Header.Set("Access-Control-Request-Headers", "Authorization")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("status=%d, want forbidden", w.Code)
+		}
+	})
+
+	t.Run("cors does not cover ingestion", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodOptions, "/api/logs", nil)
+		r.Header.Set("Origin", "https://attacker.example")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatalf("unexpected CORS header on ingestion route: %v", w.Header())
+		}
+	})
+}
+
 func TestSSEHeadersEventIDAndJSON(t *testing.T) {
 	server, publisher := testServer(t, 2, "1s")
 	publisher.Publish(logstream.Event{Source: "api", Level: "INFO", Message: "history"})
@@ -115,6 +180,23 @@ func TestSSEHeadersEventIDAndJSON(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, "id: 1\n") || !strings.Contains(body, `"message":"history"`) || !strings.Contains(body, `"source":"api"`) {
 		t.Fatalf("unexpected SSE data: %s", body)
+	}
+}
+
+func TestSSECORSAllowedOrigin(t *testing.T) {
+	server, _ := testServerWithOrigins(t, 2, "1s", []string{"http://localhost:5173"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	recorder := newFlushRecorder()
+	recorder.onFlush = func(count int) {
+		if count == 1 {
+			cancel()
+		}
+	}
+	headers := http.Header{"Origin": []string{"http://localhost:5173"}}
+	serveRequest(server, http.MethodGet, "/api/logs/stream", nil, headers, ctx, recorder)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
+		t.Fatalf("status=%d headers=%v", recorder.Code, recorder.Header())
 	}
 }
 

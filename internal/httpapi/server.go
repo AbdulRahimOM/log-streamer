@@ -52,8 +52,59 @@ func New(cfg *config.Config, publisher *logstream.Publisher, statuses *collector
 	})
 	mux.HandleFunc("GET /api/logs/stream", s.stream(publisher))
 	mux.Handle("POST /api/logs", ingestionHandler(cfg, publisher))
-	s.handler = securityHeaders(mux)
+	s.handler = securityHeaders(cors(mux, cfg.Server.CORSAllowedOrigins))
 	return s, nil
+}
+
+// cors limits cross-origin browser access to the two read-only APIs. Requests
+// without Origin remain available to local tools and same-origin clients.
+func cors(next http.Handler, allowedOrigins []string) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = struct{}{}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		isServices := r.URL.Path == "/api/services"
+		isStream := r.URL.Path == "/api/logs/stream"
+		crossOriginRoute := isServices || isStream
+		if crossOriginRoute {
+			w.Header().Add("Vary", "Origin")
+			if r.Method == http.MethodOptions {
+				w.Header().Add("Vary", "Access-Control-Request-Method")
+				w.Header().Add("Vary", "Access-Control-Request-Headers")
+				origin := r.Header.Get("Origin")
+				if _, ok := allowed[origin]; !ok || origin == "" || r.Header.Get("Access-Control-Request-Method") != http.MethodGet {
+					http.Error(w, "CORS preflight is not allowed", http.StatusForbidden)
+					return
+				}
+				requestedHeaders := strings.Split(strings.ToLower(r.Header.Get("Access-Control-Request-Headers")), ",")
+				for _, header := range requestedHeaders {
+					header = strings.TrimSpace(header)
+					if header != "" && header != "last-event-id" {
+						http.Error(w, "CORS preflight header is not allowed", http.StatusForbidden)
+						return
+					}
+				}
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET")
+				if strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers")) != "" {
+					w.Header().Set("Access-Control-Allow-Headers", "Last-Event-ID")
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if origin := r.Header.Get("Origin"); origin != "" {
+				if _, ok := allowed[origin]; !ok {
+					http.Error(w, "origin is not allowed", http.StatusForbidden)
+					return
+				}
+				if r.Method == http.MethodGet {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Handler() http.Handler { return s.handler }

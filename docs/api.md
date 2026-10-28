@@ -2,6 +2,8 @@
 
 All routes are served by the same Go process. The health and services routes do not require authentication. Protect public access with a TLS-terminating reverse proxy and its access policy.
 
+For cross-origin browser clients, configure exact origins with `server.cors_allowed_origins`. CORS is enabled only for `GET /api/services` and `GET /api/logs/stream`, including `Last-Event-ID` reconnect preflights; credentials and wildcard origins are not allowed. Requests without an `Origin` header continue to work for local tools.
+
 ## `GET /healthz`
 
 Returns `200 application/json` with `{"status":"ok"}` when the HTTP service is available.

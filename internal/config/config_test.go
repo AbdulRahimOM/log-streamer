@@ -136,6 +136,27 @@ func TestValidateRejectsUnknownSourceType(t *testing.T) {
 	}
 }
 
+func TestValidateCORSAllowedOrigins(t *testing.T) {
+	cases := []struct {
+		name, origins string
+		wantErr       bool
+	}{
+		{"valid exact origins", "  - http://localhost:5173\n  - https://logs.example.com", false},
+		{"wildcard", "  - '*'", true},
+		{"path", "  - https://logs.example.com/app", true},
+		{"unsupported scheme", "  - ftp://logs.example.com", true},
+		{"duplicate", "  - https://logs.example.com\n  - https://logs.example.com", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, "server:\n  cors_allowed_origins:\n"+tc.origins+"\n"))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Load() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsInvalidLimits(t *testing.T) {
 	cases := []struct {
 		name, yaml, contains string

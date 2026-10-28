@@ -9,6 +9,7 @@ Configuration is validated at startup. Unknown YAML fields and unsupported sourc
 | YAML key | Default | Description |
 |---|---|---|
 | `server.listen_address` | `:8080` | HTTP listen address. Overridden by `LOGSTREAMER_HTTP_ADDR`. |
+| `server.cors_allowed_origins` | `[]` | Exact HTTP(S) origins allowed to read `/api/services` and `/api/logs/stream` from a browser. No wildcard or credentials. |
 | `docker.host` | `unix:///var/run/docker.sock` | Docker API connection address; needed only for Docker and Compose sources. |
 | `limits.recent_capacity` | `500` | Maximum recent events retained in memory. |
 | `limits.client_queue_capacity` | `256` | Maximum pending events per streaming client. |
@@ -21,6 +22,18 @@ Configuration is validated at startup. Unknown YAML fields and unsupported sourc
 | `limits.max_event_bytes` | `1048576` | Maximum size of each Docker/file line or HTTP event. |
 
 All capacities and limits must be greater than zero. Durations use Go duration syntax such as `500ms`, `5s`, or `1m`.
+
+For a separately hosted LogLens, add its exact origin (including scheme and port, without a path) to `server.cors_allowed_origins`, for example:
+
+```yaml
+server:
+  listen_address: "127.0.0.1:8080"
+  cors_allowed_origins:
+    - "http://localhost:5173"
+    - "https://logs.example.com"
+```
+
+The default empty list disables cross-origin browser access. CORS applies only to the read-only services and stream routes; it is not authentication or an access control for non-browser clients.
 
 ## Sources
 
