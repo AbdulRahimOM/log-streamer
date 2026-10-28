@@ -3,55 +3,227 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>LogStreamer</title>
   <style>
     :root { color-scheme: dark; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #101318; color: #d8dee9; }
+    * { box-sizing: border-box; }
     body { margin: 0; padding: 24px; }
-    main { max-width: 1200px; margin: auto; }
-    h1 { font-size: 20px; margin: 0 0 4px; }
-    #status { color: #8fbcbb; margin-bottom: 18px; }
-    #logs { border: 1px solid #303640; border-radius: 6px; min-height: 65vh; overflow: auto; background: #15191f; }
-    .row { display: grid; grid-template-columns: 180px 150px 76px 76px minmax(0, 1fr); gap: 12px; padding: 5px 10px; border-bottom: 1px solid #252a32; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .time, .origin { color: #7b8492; } .source { color: #88c0d0; } .level { font-weight: 700; }
+    main { max-width: 1440px; margin: auto; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    h1 { font-size: 20px; margin: 0; }
+    #status { color: #8fbcbb; }
+    #status[data-state="reconnecting"] { color: #ebcb8b; }
+    #status[data-state="closed"] { color: #bf616a; }
+    .controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid #303640; border-radius: 6px; background: #15191f; }
+    label { display: grid; gap: 4px; color: #aab2bf; }
+    select, button { min-height: 34px; padding: 6px 10px; border: 1px solid #454d5a; border-radius: 4px; background: #202630; color: #d8dee9; font: inherit; }
+    button { cursor: pointer; }
+    button:hover, select:hover { border-color: #88c0d0; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #88c0d0; outline-offset: 2px; }
+    .check { display: flex; align-items: center; min-height: 34px; gap: 8px; }
+    #notices { min-height: 1.5em; margin: 4px 0 8px; color: #ebcb8b; }
+    #logs { border: 1px solid #303640; border-radius: 6px; height: min(72vh, 900px); min-height: 360px; overflow: auto; background: #15191f; }
+    .row { display: grid; grid-template-columns: 190px minmax(100px, 160px) 76px 72px minmax(0, 1fr); gap: 12px; padding: 6px 10px; border-bottom: 1px solid #252a32; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .time, .origin { color: #7b8492; }
+    .source { font-weight: 700; }
+    .source-0 { color: #88c0d0; } .source-1 { color: #b48ead; } .source-2 { color: #8fbcbb; }
+    .source-3 { color: #ebcb8b; } .source-4 { color: #d08770; } .source-5 { color: #a3be8c; }
+    .level { font-weight: 700; }
     .DEBUG { color: #b48ead; } .INFO { color: #a3be8c; } .WARN { color: #ebcb8b; } .ERROR { color: #bf616a; } .UNKNOWN { color: #d8dee9; }
     #empty { padding: 24px; color: #7b8492; }
-    @media (max-width: 760px) { body { padding: 12px; } .row { grid-template-columns: 1fr 1fr; gap: 2px 10px; } .message { grid-column: 1 / -1; } }
+    @media (max-width: 760px) {
+      body { padding: 12px; }
+      header { align-items: flex-start; flex-direction: column; gap: 2px; }
+      .controls { align-items: stretch; }
+      .controls label { flex: 1 1 140px; }
+      .controls select { width: 100%; }
+      #logs { height: 70vh; min-height: 300px; }
+      .row { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; }
+      .time { grid-column: 1; }
+      .source { grid-column: 2; grid-row: 1; text-align: right; }
+      .level { grid-column: 1; }
+      .origin { grid-column: 2; grid-row: 2; text-align: right; }
+      .message { grid-column: 1 / -1; }
+    }
   </style>
 </head>
 <body>
 <main>
-  <h1>LogStreamer</h1>
-  <div id="status" role="status">Connecting…</div>
-  <section id="logs" aria-live="polite"><div id="empty">Waiting for log events…</div></section>
+  <header>
+    <h1>LogStreamer</h1>
+    <div id="status" data-state="connecting" role="status">Connecting to log stream…</div>
+  </header>
+  <section class="controls" aria-label="Log display controls">
+    <label>Service
+      <select id="source-filter" aria-label="Filter by service"><option value="">All services</option></select>
+    </label>
+    <label>Level
+      <select id="level-filter" aria-label="Filter by level">
+        <option value="">All levels</option>
+        <option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option><option>UNKNOWN</option>
+      </select>
+    </label>
+    <button id="pause" type="button" aria-pressed="false">Pause</button>
+    <label class="check"><input id="auto-scroll" type="checkbox" checked> Auto-scroll</label>
+    <button id="clear" type="button">Clear logs</button>
+  </section>
+  <div id="notices" role="status" aria-live="polite"></div>
+  <section id="logs" aria-label="Live logs" aria-live="off"><div id="empty">Waiting for log events…</div></section>
 </main>
 <script>
-  const logs = document.getElementById('logs');
-  const status = document.getElementById('status');
-  const stream = new EventSource('/api/logs/stream');
-  stream.onopen = () => { status.textContent = 'Connected'; };
-  stream.onerror = () => { status.textContent = 'Disconnected; reconnecting…'; };
-  stream.onmessage = (message) => {
-    let event;
-    try { event = JSON.parse(message.data); } catch (_) { return; }
-    const empty = document.getElementById('empty');
-    if (empty) empty.remove();
-    const row = document.createElement('div');
-    row.className = 'row';
-    const values = [
-      ['time', event.timestamp || ''], ['source', event.source || ''],
-      ['level ' + (event.level || 'UNKNOWN'), event.level || 'UNKNOWN'],
-      ['origin', event.origin || ''], ['message', event.message || '']
-    ];
-    for (const [className, value] of values) {
+  (() => {
+    const maxEvents = 500;
+    const logs = document.getElementById('logs');
+    const status = document.getElementById('status');
+    const notices = document.getElementById('notices');
+    const sourceFilter = document.getElementById('source-filter');
+    const levelFilter = document.getElementById('level-filter');
+    const pauseButton = document.getElementById('pause');
+    const autoScroll = document.getElementById('auto-scroll');
+    const events = [];
+    let paused = false;
+    let pauseReceived = 0;
+    let discarded = 0;
+    let everReceived = false;
+
+    function setConnection(state, message) {
+      status.dataset.state = state;
+      status.textContent = message;
+    }
+
+    function updateNotices() {
+      const messages = [];
+      if (paused) messages.push(`Paused · ${pauseReceived} new events received`);
+      if (discarded) messages.push(`${discarded} oldest event${discarded === 1 ? '' : 's'} discarded from the 500-event buffer`);
+      notices.textContent = messages.join(' · ');
+      pauseButton.textContent = paused ? 'Resume' : 'Pause';
+      pauseButton.setAttribute('aria-pressed', String(paused));
+    }
+
+    function createCell(className, value) {
       const cell = document.createElement('span');
       cell.className = className;
-      cell.textContent = value;
-      row.appendChild(cell);
+      cell.textContent = value == null ? '' : String(value);
+      return cell;
     }
-    logs.appendChild(row);
-    while (logs.children.length > 501) logs.removeChild(logs.children[1]);
-    logs.scrollTop = logs.scrollHeight;
-  };
+
+    function sourceClass(source) {
+      let hash = 0;
+      for (let index = 0; index < source.length; index++) hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
+      return `source-${hash % 6}`;
+    }
+
+    function render() {
+      if (paused) return;
+      const previousScrollTop = logs.scrollTop;
+      const matching = events.filter((event) =>
+        (!sourceFilter.value || event.source === sourceFilter.value) &&
+        (!levelFilter.value || event.level === levelFilter.value)
+      );
+      const fragment = document.createDocumentFragment();
+      if (!matching.length) {
+        const empty = document.createElement('div');
+        empty.id = 'empty';
+        empty.textContent = events.length
+          ? 'No logs match the selected filters.'
+          : (everReceived ? 'Log view cleared. Waiting for new events…' : 'Waiting for log events…');
+        fragment.appendChild(empty);
+      } else {
+        for (const event of matching) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const level = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'UNKNOWN'].includes(event.level) ? event.level : 'UNKNOWN';
+          row.append(
+            createCell('time', event.timestamp || ''),
+            createCell(`source ${sourceClass(event.source || '')}`, event.source || ''),
+            createCell(`level ${level}`, level),
+            createCell('origin', event.origin || ''),
+            createCell('message', event.message || '')
+          );
+          fragment.appendChild(row);
+        }
+      }
+      logs.replaceChildren(fragment);
+      logs.scrollTop = autoScroll.checked ? logs.scrollHeight : previousScrollTop;
+    }
+
+    async function refreshServices() {
+      try {
+        const response = await fetch('/api/services', { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error('service list unavailable');
+        const payload = await response.json();
+        const selected = sourceFilter.value;
+        const fragment = document.createDocumentFragment();
+        const all = document.createElement('option');
+        all.value = '';
+        all.textContent = 'All services';
+        fragment.appendChild(all);
+        for (const service of payload.services || []) {
+          const option = document.createElement('option');
+          option.value = String(service.name || '');
+          option.textContent = `${service.name || '(unnamed)'} · ${service.state || 'unknown'}`;
+          fragment.appendChild(option);
+        }
+        sourceFilter.replaceChildren(fragment);
+        if ([...sourceFilter.options].some((option) => option.value === selected)) sourceFilter.value = selected;
+        if (!paused) render();
+      } catch (_) {
+        // Keep the last known list; the stream remains usable without this refresh.
+      }
+    }
+
+    sourceFilter.addEventListener('change', render);
+    levelFilter.addEventListener('change', render);
+    pauseButton.addEventListener('click', () => {
+      paused = !paused;
+      if (!paused) {
+        pauseReceived = 0;
+        render();
+      }
+      updateNotices();
+    });
+    autoScroll.addEventListener('change', () => {
+      if (autoScroll.checked && !paused) logs.scrollTop = logs.scrollHeight;
+    });
+    document.getElementById('clear').addEventListener('click', () => {
+      events.length = 0;
+      discarded = 0;
+      pauseReceived = 0;
+      everReceived = true;
+      updateNotices();
+      if (!paused) render();
+      else {
+        const empty = document.createElement('div');
+        empty.id = 'empty';
+        empty.textContent = 'Log view cleared. Waiting for new events…';
+        logs.replaceChildren(empty);
+      }
+    });
+
+    const stream = new EventSource('/api/logs/stream');
+    stream.onopen = () => setConnection('connected', 'Connected');
+    stream.onerror = () => {
+      if (stream.readyState === EventSource.CLOSED) setConnection('closed', 'Stream closed');
+      else setConnection('reconnecting', 'Connection interrupted · reconnecting…');
+    };
+    stream.onmessage = (message) => {
+      let event;
+      try { event = JSON.parse(message.data); } catch (_) { return; }
+      everReceived = true;
+      if (events.length === maxEvents) {
+        events.shift();
+        discarded++;
+      }
+      events.push(event);
+      if (paused) pauseReceived++;
+      else render();
+      updateNotices();
+    };
+
+    refreshServices();
+    window.setInterval(refreshServices, 5000);
+  })();
 </script>
 </body>
 </html>

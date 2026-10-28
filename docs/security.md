@@ -8,12 +8,12 @@ Configure only the Docker containers or Compose project/services that LogStreame
 
 ## HTTP exposure
 
-The dashboard is intended to be deployed behind a reverse proxy when publicly accessible. Use TLS and apply the deployment's access policy at that proxy. LogStreamer does not implement a complex dashboard authentication system. The future HTTP ingestion endpoint uses a bearer token supplied through `LOGSTREAMER_INGEST_TOKEN`; keep it in deployment secrets and never place it in YAML or browser code.
+The dashboard is intended to be deployed behind a reverse proxy when publicly accessible. Use TLS and apply the deployment's access policy at that proxy. LogStreamer does not implement a complex dashboard authentication system. The HTTP ingestion endpoint uses a bearer token supplied through `LOGSTREAMER_INGEST_TOKEN`; keep it in deployment secrets and never place it in YAML or browser code. The Go `sloghandler` package accepts the token only in server-side application code and sends it as an authorization header.
 
 ## Untrusted log content
 
-Log records can contain attacker-controlled text and structured fields. The dashboard must render these values as text, never as HTML. Apply request and connection limits to keep untrusted inputs from consuming unbounded memory or resources.
+Log records can contain attacker-controlled text and structured fields. The dashboard renders log values as text, never as HTML, and keeps at most 500 records in its browser buffer. API and dashboard responses include content-type, referrer, frame, permissions, and content security headers. Apply request and connection limits to keep untrusted inputs from consuming unbounded memory or resources.
 
 ## Phase status
 
-Phase 3 adds allowlisted Docker and file collection plus bearer-token-protected HTTP ingestion. The ingestion token is server-side only and is required when an HTTP source is configured. Source status omits raw errors and paths. Docker socket access remains a high-privilege capability; restrict access to the LogStreamer process and its deployment.
+Phase 4 adds browser-local log controls and the optional bounded `sloghandler` forwarder. The ingestion token is server-side only and is required when an HTTP source is configured. Source status omits raw errors and paths. Docker socket access remains a high-privilege capability; restrict access to the LogStreamer process and its deployment.

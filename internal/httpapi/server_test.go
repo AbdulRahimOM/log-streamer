@@ -82,6 +82,18 @@ func TestHealthServicesAndDashboard(t *testing.T) {
 		if path == "/" && (!strings.Contains(body, "textContent") || strings.Contains(body, "innerHTML")) {
 			t.Fatal("dashboard must render event content as text")
 		}
+		if path == "/" {
+			for _, feature := range []string{"id=\"source-filter\"", "id=\"level-filter\"", "id=\"pause\"", "id=\"auto-scroll\"", "id=\"clear\"", "new EventSource('/api/logs/stream')", "const maxEvents = 500", "events.shift()"} {
+				if !strings.Contains(body, feature) {
+					t.Errorf("dashboard is missing %q", feature)
+				}
+			}
+			for _, header := range []string{"Content-Security-Policy", "X-Frame-Options", "Permissions-Policy"} {
+				if recorder.Header().Get(header) == "" {
+					t.Errorf("dashboard response missing %s security header", header)
+				}
+			}
+		}
 	}
 }
 
