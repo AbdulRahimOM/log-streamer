@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/abdulrahimom/logstreamer/internal/collectors"
 	"github.com/abdulrahimom/logstreamer/internal/config"
 	"github.com/abdulrahimom/logstreamer/internal/httpapi"
 	"github.com/abdulrahimom/logstreamer/internal/logstream"
@@ -21,7 +22,12 @@ func main() {
 	}
 
 	publisher := logstream.NewPublisher(cfg.Limits.RecentCapacity, cfg.Limits.ClientQueueCapacity)
-	server, err := httpapi.New(cfg, publisher)
+	manager, err := collectors.NewManager(cfg, publisher)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "collector configuration error: %v\n", err)
+		os.Exit(1)
+	}
+	server, err := httpapi.New(cfg, publisher, manager.Statuses())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "server configuration error: %v\n", err)
 		os.Exit(1)
@@ -29,9 +35,17 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	managerDone := make(chan struct{})
+	go func() {
+		defer close(managerDone)
+		manager.Run(ctx)
+	}()
 	log.Printf("LogStreamer listening on %s", cfg.Server.ListenAddress)
-	if err := server.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+	serverErr := server.Start(ctx)
+	stop()
+	<-managerDone
+	if serverErr != nil {
+		fmt.Fprintf(os.Stderr, "server error: %v\n", serverErr)
 		os.Exit(1)
 	}
 }

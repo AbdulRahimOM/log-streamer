@@ -3,21 +3,23 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/abdulrahimom/logstreamer/internal/collectors"
 	"github.com/abdulrahimom/logstreamer/internal/config"
 	"github.com/abdulrahimom/logstreamer/internal/logstream"
 )
 
 func testServer(t *testing.T, maxClients int, keepalive string) (*Server, *logstream.Publisher) {
 	t.Helper()
-	cfg := &config.Config{Server: config.ServerConfig{ListenAddress: ":8080"}, Limits: config.LimitsConfig{SSEKeepalive: keepalive, MaxSSEClients: maxClients}, Sources: []config.SourceConfig{{Name: "api", Type: "docker"}, {Name: "external", Type: "http"}}}
+	cfg := &config.Config{Server: config.ServerConfig{ListenAddress: ":8080"}, IngestToken: "test-token", Limits: config.LimitsConfig{SSEKeepalive: keepalive, MaxSSEClients: maxClients, IngestMaxBodyBytes: 1024, IngestMaxBatch: 2, MaxEventBytes: 128}, Sources: []config.SourceConfig{{Name: "api", Type: "docker"}, {Name: "external", Type: "http"}}}
 	publisher := logstream.NewPublisher(10, 8)
-	server, err := New(cfg, publisher)
+	server, err := New(cfg, publisher, collectors.NewRegistry(cfg.Sources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,12 @@ func (r *flushRecorder) Flush() {
 }
 
 func serve(s *Server, path string, ctx context.Context, recorder *flushRecorder) {
-	request := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
+	serveRequest(s, http.MethodGet, path, nil, nil, ctx, recorder)
+}
+
+func serveRequest(s *Server, method, path string, body io.Reader, headers http.Header, ctx context.Context, recorder *flushRecorder) {
+	request := httptest.NewRequest(method, path, body).WithContext(ctx)
+	request.Header = headers.Clone()
 	s.Handler().ServeHTTP(recorder, request)
 }
 
@@ -143,6 +150,90 @@ func TestSSEClientLimitAndInvalidFilter(t *testing.T) {
 	serve(server, "/api/logs/stream?origin=container", context.Background(), bad)
 	if bad.Code != http.StatusBadRequest {
 		t.Fatalf("invalid filter status=%d", bad.Code)
+	}
+}
+
+func TestHTTPIngestionPublishesWithConfiguredSourceIdentity(t *testing.T) {
+	server, publisher := testServer(t, 2, "1s")
+	headers := http.Header{"Authorization": []string{"Bearer test-token"}}
+	recorder := newFlushRecorder()
+	body := `{"timestamp":"2025-01-02T03:04:05Z","level":"info","message":"hello","source":"caller","fields":{"trace":"abc"}}`
+	serveRequest(server, http.MethodPost, "/api/logs?source=external", strings.NewReader(body), headers, context.Background(), recorder)
+	if recorder.Code != http.StatusAccepted || !strings.Contains(recorder.Body.String(), `"accepted":1`) {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	sub, history, _ := publisher.Subscribe(logstream.Filter{})
+	defer publisher.Unsubscribe(sub)
+	if len(history) != 1 {
+		t.Fatalf("published %d events", len(history))
+	}
+	event := history[0].Event
+	if event.Source != "external" || event.Origin != "http" || event.Level != "INFO" || event.Message != "hello" || event.Fields["source"] != "caller" || event.Fields["trace"] != "abc" {
+		t.Fatalf("ingested event identity or fields were wrong: %#v", event)
+	}
+}
+
+func TestHTTPIngestionAuthAndSourceSelection(t *testing.T) {
+	server, _ := testServer(t, 2, "1s")
+	cases := []struct {
+		name, path, token string
+		want              int
+	}{
+		{"missing token", "/api/logs?source=external", "", http.StatusUnauthorized},
+		{"wrong token", "/api/logs?source=external", "wrong", http.StatusUnauthorized},
+		{"missing source", "/api/logs", "test-token", http.StatusBadRequest},
+		{"unknown source", "/api/logs?source=not-configured", "test-token", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := make(http.Header)
+			if tc.token != "" {
+				headers.Set("Authorization", "Bearer "+tc.token)
+			}
+			recorder := newFlushRecorder()
+			serveRequest(server, http.MethodPost, tc.path, strings.NewReader(`{"message":"hi"}`), headers, context.Background(), recorder)
+			if recorder.Code != tc.want {
+				t.Fatalf("status=%d, want %d: %q", recorder.Code, tc.want, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestHTTPIngestionRejectsWholeInvalidBatchWithoutPublishing(t *testing.T) {
+	server, publisher := testServer(t, 2, "1s")
+	recorder := newFlushRecorder()
+	headers := http.Header{"Authorization": []string{"Bearer test-token"}}
+	body := `[{"message":"valid"},{"level":"INFO"}]`
+	serveRequest(server, http.MethodPost, "/api/logs?source=external", strings.NewReader(body), headers, context.Background(), recorder)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	sub, history, _ := publisher.Subscribe(logstream.Filter{})
+	publisher.Unsubscribe(sub)
+	if len(history) != 0 {
+		t.Fatalf("invalid batch partially published %d events", len(history))
+	}
+}
+
+func TestHTTPIngestionEnforcesBodyEventAndBatchLimits(t *testing.T) {
+	server, _ := testServer(t, 2, "1s")
+	headers := http.Header{"Authorization": []string{"Bearer test-token"}}
+	cases := []struct {
+		name, body string
+		want       int
+	}{
+		{"body bytes", strings.Repeat("x", 1100), http.StatusRequestEntityTooLarge},
+		{"event bytes", `{"message":"` + strings.Repeat("x", 130) + `"}`, http.StatusRequestEntityTooLarge},
+		{"batch count", `[{"message":"one"},{"message":"two"},{"message":"three"}]`, http.StatusRequestEntityTooLarge},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := newFlushRecorder()
+			serveRequest(server, http.MethodPost, "/api/logs?source=external", strings.NewReader(tc.body), headers, context.Background(), recorder)
+			if recorder.Code != tc.want {
+				t.Fatalf("status=%d, want %d: %q", recorder.Code, tc.want, recorder.Body.String())
+			}
+		})
 	}
 }
 

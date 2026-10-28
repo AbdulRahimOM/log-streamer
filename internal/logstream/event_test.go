@@ -42,3 +42,10 @@ func TestParseRejectsTrailingJSONAndKeepsRawLine(t *testing.T) {
 		t.Fatalf("malformed JSON was treated as structured: %#v", event)
 	}
 }
+
+func TestParseFlattensFieldsAndPreservesEmptyMessage(t *testing.T) {
+	event := Parse(`{"message":"","fields":{"trace":"abc"},"source":"caller"}`, "configured", "http", time.Now())
+	if event.Message != "" || event.Source != "configured" || event.Fields["trace"] != "abc" || event.Fields["source"] != "caller" {
+		t.Fatalf("unexpected normalized event: %#v", event)
+	}
+}

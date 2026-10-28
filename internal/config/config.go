@@ -15,6 +15,7 @@ const (
 	DefaultPath           = "config.yaml"
 	DefaultDockerHost     = "unix:///var/run/docker.sock"
 	DefaultRecentCapacity = 500
+	DefaultMaxEventBytes  = 1 << 20
 )
 
 // Config is the validated, process-wide service configuration.
@@ -43,6 +44,7 @@ type LimitsConfig struct {
 	MaxSSEClients       int    `yaml:"max_sse_clients"`
 	IngestMaxBodyBytes  int64  `yaml:"ingest_max_body_bytes"`
 	IngestMaxBatch      int    `yaml:"ingest_max_batch"`
+	MaxEventBytes       int    `yaml:"max_event_bytes"`
 }
 
 type SourceConfig struct {
@@ -105,7 +107,7 @@ func LoadFromEnv() (*Config, error) {
 		cfg.Server.ListenAddress = value
 	}
 	cfg.IngestToken = os.Getenv("LOGSTREAMER_INGEST_TOKEN")
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.ValidateRuntime(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -142,6 +144,9 @@ func (c *Config) applyDefaults() {
 	if c.Limits.IngestMaxBatch == 0 {
 		c.Limits.IngestMaxBatch = 100
 	}
+	if c.Limits.MaxEventBytes == 0 {
+		c.Limits.MaxEventBytes = DefaultMaxEventBytes
+	}
 }
 
 // Validate checks all fields that can be verified without opening a source.
@@ -166,6 +171,9 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.IngestMaxBatch <= 0 {
 		return errors.New("limits.ingest_max_batch must be greater than zero")
+	}
+	if c.Limits.MaxEventBytes <= 0 {
+		return errors.New("limits.max_event_bytes must be greater than zero")
 	}
 	if _, err := parsePositiveDuration("limits.sse_keepalive", c.Limits.SSEKeepalive); err != nil {
 		return err
@@ -194,6 +202,20 @@ func (c Config) Validate() error {
 
 		if err := validateSource(prefix, source); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// ValidateRuntime checks deployment-only requirements after environment
+// overrides have been applied.
+func (c Config) ValidateRuntime() error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	for _, source := range c.Sources {
+		if source.Type == "http" && strings.TrimSpace(c.IngestToken) == "" {
+			return errors.New("LOGSTREAMER_INGEST_TOKEN is required when an HTTP source is configured")
 		}
 	}
 	return nil

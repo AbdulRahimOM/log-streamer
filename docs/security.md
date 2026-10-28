@@ -16,4 +16,4 @@ Log records can contain attacker-controlled text and structured fields. The dash
 
 ## Phase status
 
-Phase 2 serves the dashboard, SSE stream, source list, and health endpoint. Source collectors and HTTP ingestion are not implemented until Phase 3; the service does not yet access Docker or read configured log files.
+Phase 3 adds allowlisted Docker and file collection plus bearer-token-protected HTTP ingestion. The ingestion token is server-side only and is required when an HTTP source is configured. Source status omits raw errors and paths. Docker socket access remains a high-privilege capability; restrict access to the LogStreamer process and its deployment.

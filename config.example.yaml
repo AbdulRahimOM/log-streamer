@@ -13,6 +13,7 @@ limits:
   max_sse_clients: 100
   ingest_max_body_bytes: 1048576
   ingest_max_batch: 100
+  max_event_bytes: 1048576
 
 sources:
   - name: messenger-api

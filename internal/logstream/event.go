@@ -36,8 +36,9 @@ func Parse(raw, source, origin string, receivedAt time.Time) Event {
 	decoder.UseNumber()
 	if err := decoder.Decode(&record); err == nil && record != nil {
 		if decoder.Decode(new(any)) == io.EOF {
-			event.Message = firstString(record, "msg", "message")
-			if event.Message == "" {
+			if message, ok := firstStringValue(record, "msg", "message"); ok {
+				event.Message = message
+			} else {
 				event.Message = raw
 			}
 			if timestamp, ok := parseTimestamp(firstValue(record, "timestamp", "time", "ts")); ok {
@@ -48,6 +49,14 @@ func Parse(raw, source, origin string, receivedAt time.Time) Event {
 			for key, value := range record {
 				switch strings.ToLower(key) {
 				case "timestamp", "time", "ts", "level", "severity", "msg", "message":
+				case "fields":
+					if nested, ok := value.(map[string]any); ok {
+						for field, fieldValue := range nested {
+							fields[field] = fieldValue
+						}
+					} else {
+						fields[key] = value
+					}
 				default:
 					fields[key] = value
 				}
@@ -74,12 +83,17 @@ func firstValue(record map[string]any, keys ...string) any {
 }
 
 func firstString(record map[string]any, keys ...string) string {
+	value, _ := firstStringValue(record, keys...)
+	return value
+}
+
+func firstStringValue(record map[string]any, keys ...string) (string, bool) {
 	for _, key := range keys {
-		if value, ok := record[key].(string); ok && value != "" {
-			return value
+		if value, ok := record[key].(string); ok {
+			return value, true
 		}
 	}
-	return ""
+	return "", false
 }
 
 func parseTimestamp(value any) (time.Time, bool) {

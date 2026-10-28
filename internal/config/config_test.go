@@ -46,6 +46,9 @@ func TestLoadAppliesDefaultsAndLoadsAllSourceTypes(t *testing.T) {
 	if cfg.Limits.RecentCapacity != 500 {
 		t.Errorf("recent capacity = %d, want 500", cfg.Limits.RecentCapacity)
 	}
+	if cfg.Limits.MaxEventBytes != DefaultMaxEventBytes {
+		t.Errorf("max event bytes = %d, want %d", cfg.Limits.MaxEventBytes, DefaultMaxEventBytes)
+	}
 	if len(cfg.Sources) != 4 {
 		t.Fatalf("loaded %d sources, want 4", len(cfg.Sources))
 	}
@@ -121,6 +124,7 @@ func TestValidateRejectsInvalidLimits(t *testing.T) {
 		{"negative recent", "limits:\n  recent_capacity: -1\n", "recent_capacity must be greater than zero"},
 		{"bad keepalive", "limits:\n  sse_keepalive: never\n", "sse_keepalive must be a valid duration"},
 		{"inverted backoff", "limits:\n  reconnect_min: 5s\n  reconnect_max: 1s\n", "reconnect_max must be greater than or equal"},
+		{"zero max event bytes", "limits:\n  max_event_bytes: 0\n", "max_event_bytes must be greater than zero"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,5 +146,14 @@ func TestTokenNeverAppearsInConfigErrors(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "must-not-leak") {
 		t.Fatalf("secret leaked in error: %v", err)
+	}
+}
+
+func TestLoadFromEnvRequiresTokenWhenHTTPSourceIsConfigured(t *testing.T) {
+	t.Setenv("LOGSTREAMER_CONFIG", writeConfig(t, validYAML))
+	t.Setenv("LOGSTREAMER_INGEST_TOKEN", "")
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "LOGSTREAMER_INGEST_TOKEN is required") {
+		t.Fatalf("expected HTTP token startup error, got %v", err)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/abdulrahimom/logstreamer/internal/collectors"
 	"github.com/abdulrahimom/logstreamer/internal/config"
 	"github.com/abdulrahimom/logstreamer/internal/logstream"
 )
@@ -24,7 +25,15 @@ type Server struct {
 	stopOnce   sync.Once
 }
 
-func New(cfg *config.Config, publisher *logstream.Publisher) (*Server, error) {
+func New(cfg *config.Config, publisher *logstream.Publisher, statuses *collectors.Registry) (*Server, error) {
+	if statuses == nil {
+		statuses = collectors.NewRegistry(cfg.Sources)
+	}
+	for _, source := range cfg.Sources {
+		if source.Type == "http" && strings.TrimSpace(cfg.IngestToken) == "" {
+			return nil, fmt.Errorf("LOGSTREAMER_INGEST_TOKEN is required when an HTTP source is configured")
+		}
+	}
 	keepalive, err := time.ParseDuration(cfg.Limits.SSEKeepalive)
 	if err != nil {
 		return nil, fmt.Errorf("parse SSE keepalive: %w", err)
@@ -39,18 +48,10 @@ func New(cfg *config.Config, publisher *logstream.Publisher) (*Server, error) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/services", func(w http.ResponseWriter, _ *http.Request) {
-		type service struct {
-			Name  string `json:"name"`
-			Type  string `json:"type"`
-			State string `json:"state"`
-		}
-		services := make([]service, 0, len(cfg.Sources))
-		for _, source := range cfg.Sources {
-			services = append(services, service{Name: source.Name, Type: source.Type, State: "configured"})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"services": services})
+		writeJSON(w, http.StatusOK, map[string]any{"services": statuses.Snapshot()})
 	})
 	mux.HandleFunc("GET /api/logs/stream", s.stream(publisher))
+	mux.Handle("POST /api/logs", ingestionHandler(cfg, publisher))
 	s.handler = securityHeaders(mux)
 	return s, nil
 }
