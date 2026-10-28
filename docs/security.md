@@ -2,9 +2,11 @@
 
 ## Docker socket access
 
-Docker collection requires server-side access to the Docker API. Access to a Docker socket commonly grants broad control over the host, including the ability to start privileged containers or mount host filesystems. Treat a mounted Docker socket as a high-privilege capability, restrict who can run the LogStreamer container, and do not expose the socket through a browser-facing endpoint.
+Docker and Compose collection require server-side access to the Docker API. The default quick-start config and `compose.yaml` use HTTP ingestion and do not mount or connect to a Docker socket. Direct collection is enabled only with a Docker/Compose source and, in containers, the explicit `compose.docker.yaml` override.
 
-Configure only the Docker containers or Compose project/services that LogStreamer should monitor. The browser-facing service must not offer arbitrary container discovery or Docker control. Docker connection details and secrets must never be included in API responses or logs.
+Access to a Docker socket commonly grants broad control over the host, including the ability to start privileged containers or mount host filesystems. The example image runs as non-root; on Linux, `DOCKER_GID` adds the host socket's group so the process can connect. Docker group access still grants a highly privileged Docker API capability and is not a security boundary. The socket mount is intentionally absent by default and must never be exposed through a public TCP endpoint.
+
+On Linux, obtain the socket group ID with `stat -c '%g' /var/run/docker.sock`. Docker Desktop runs its engine in a VM and its socket ownership/path mapping can differ; inspect the socket available to the Docker CLI (`stat -f '%g' /var/run/docker.sock` on macOS) and verify the container can access it. For security-sensitive deployments, use a restricted Docker socket proxy or a separate collector with narrowly scoped host access. Configure only the required container names or Compose labels.
 
 ## HTTP exposure
 
@@ -16,4 +18,4 @@ Log records can contain attacker-controlled text and structured fields. The dash
 
 ## Phase status
 
-Phase 4 adds browser-local log controls and the optional bounded `sloghandler` forwarder. The ingestion token is server-side only and is required when an HTTP source is configured. Source status omits raw errors and paths. Docker socket access remains a high-privilege capability; restrict access to the LogStreamer process and its deployment.
+The ingestion token is server-side only and is required when an HTTP source is configured. Source status omits raw errors and paths. The default quick start is HTTP-only; file collection also requires no Docker socket. Keep local `.env` and `config.yaml` files out of version control and pass credentials through deployment secrets.

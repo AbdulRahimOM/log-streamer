@@ -54,6 +54,26 @@ func TestLoadAppliesDefaultsAndLoadsAllSourceTypes(t *testing.T) {
 	}
 }
 
+func TestCheckedInSourceExamplesLoad(t *testing.T) {
+	examples := map[string]string{
+		"../../config.example.yaml":         "http",
+		"../../config.docker.example.yaml":  "docker",
+		"../../config.compose.example.yaml": "compose",
+		"../../config.file.example.yaml":    "file",
+	}
+	for path, wantType := range examples {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.Sources) != 1 || cfg.Sources[0].Type != wantType {
+				t.Fatalf("sources=%#v, want one %s source", cfg.Sources, wantType)
+			}
+		})
+	}
+}
+
 func TestLoadFromEnvAppliesOverridesAfterYAML(t *testing.T) {
 	path := writeConfig(t, validYAML+"server:\n  listen_address: ':7070'\n")
 	t.Setenv("LOGSTREAMER_CONFIG", path)

@@ -2,6 +2,8 @@
 
 LogStreamer is a standalone Go service. Configured Docker containers, Docker Compose services, host files, and HTTP clients feed one normalized log pipeline. The service retains a bounded in-memory history and streams matching events to browsers over Server-Sent Events (SSE). It does not persist log history or require a database or message broker.
 
+The default `config.example.yaml` and Compose deployment use HTTP ingestion and need no Docker socket. Docker, Compose, and file collectors have separate configuration examples; Docker access is added only through the explicit Docker Compose override.
+
 ```mermaid
 flowchart LR
     D[Docker containers] --> C[Collectors]

@@ -1,0 +1,22 @@
+server:
+  listen_address: "127.0.0.1:8080"
+
+docker:
+  host: "unix:///var/run/docker.sock"
+
+limits:
+  recent_capacity: 500
+  client_queue_capacity: 256
+  sse_keepalive: 15s
+  reconnect_min: 1s
+  reconnect_max: 30s
+  max_sse_clients: 100
+  ingest_max_body_bytes: 1048576
+  ingest_max_batch: 100
+  max_event_bytes: 1048576
+
+sources:
+  - name: messenger-worker
+    type: compose
+    compose_project: whatsapp
+    compose_service: worker

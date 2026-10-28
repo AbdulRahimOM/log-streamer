@@ -1,0 +1,4 @@
+services:
+  logstreamer:
+    volumes:
+      - "${LOGSTREAMER_FILE_PATH:?Set LOGSTREAMER_FILE_PATH to an existing host log file}:/var/log/host-service.log:ro"
