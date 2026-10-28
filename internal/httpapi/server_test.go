@@ -200,6 +200,109 @@ func TestSSECORSAllowedOrigin(t *testing.T) {
 	}
 }
 
+func TestCORSOriginCasesForBothReadOnlyRoutes(t *testing.T) {
+	server, _ := testServerWithOrigins(t, 2, "1s", []string{"http://localhost:5173"})
+	routes := []string{"/api/services", "/api/logs/stream"}
+	origins := []struct {
+		name, value string
+		allowed     bool
+	}{
+		{name: "allowed", value: "http://localhost:5173", allowed: true},
+		{name: "rejected", value: "https://attacker.example"},
+		{name: "malformed", value: "https://bad host"},
+		{name: "absent", allowed: true},
+	}
+	for _, path := range routes {
+		for _, origin := range origins {
+			t.Run(strings.Trim(path, "/")+"/"+origin.name, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				recorder := newFlushRecorder()
+				headers := make(http.Header)
+				if origin.value != "" {
+					headers.Set("Origin", origin.value)
+				}
+				done := make(chan struct{})
+				go func() {
+					serveRequest(server, http.MethodGet, path, nil, headers, ctx, recorder)
+					close(done)
+				}()
+				if path == "/api/logs/stream" && origin.allowed {
+					select {
+					case <-recorder.flushed:
+						cancel()
+					case <-time.After(time.Second):
+						t.Fatal("SSE response did not flush")
+					}
+				}
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("request did not finish")
+				}
+				if origin.allowed {
+					if recorder.Code != http.StatusOK {
+						t.Fatalf("status=%d headers=%v", recorder.Code, recorder.Header())
+					}
+					wantOrigin := ""
+					if origin.value != "" {
+						wantOrigin = origin.value
+					}
+					if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != wantOrigin {
+						t.Errorf("Access-Control-Allow-Origin=%q, want %q", got, wantOrigin)
+					}
+				} else if recorder.Code != http.StatusForbidden || recorder.Header().Get("Access-Control-Allow-Origin") != "" {
+					t.Fatalf("malformed/rejected Origin was not denied: status=%d headers=%v", recorder.Code, recorder.Header())
+				}
+				if !strings.Contains(recorder.Header().Get("Vary"), "Origin") {
+					t.Errorf("Vary does not include Origin: %q", recorder.Header().Get("Vary"))
+				}
+				for _, name := range []string{"Access-Control-Allow-Credentials", "Access-Control-Allow-Origin"} {
+					if name == "Access-Control-Allow-Origin" && origin.allowed && origin.value != "" {
+						continue
+					}
+					if got := recorder.Header().Get(name); got == "*" || (name == "Access-Control-Allow-Credentials" && got != "") {
+						t.Errorf("unsafe CORS header %s=%q", name, got)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCORSPreflightIsRouteScopedAndSupportsLastEventID(t *testing.T) {
+	server, _ := testServerWithOrigins(t, 2, "1s", []string{"http://localhost:5173"})
+	for _, path := range []string{"/api/services", "/api/logs/stream"} {
+		t.Run(path, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodOptions, path, nil)
+			r.Header.Set("Origin", "http://localhost:5173")
+			r.Header.Set("Access-Control-Request-Method", "GET")
+			if path == "/api/logs/stream" {
+				r.Header.Set("Access-Control-Request-Headers", "Last-Event-ID")
+			}
+			w := httptest.NewRecorder()
+			server.Handler().ServeHTTP(w, r)
+			if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" || !strings.Contains(w.Header().Get("Vary"), "Origin") {
+				t.Fatalf("status=%d headers=%v", w.Code, w.Header())
+			}
+			if path == "/api/logs/stream" && w.Header().Get("Access-Control-Allow-Headers") != "Last-Event-ID" {
+				t.Fatalf("Last-Event-ID not allowed: %v", w.Header())
+			}
+			if w.Header().Get("Access-Control-Allow-Credentials") != "" || w.Header().Get("Access-Control-Allow-Origin") == "*" {
+				t.Fatalf("unsafe CORS preflight headers: %v", w.Header())
+			}
+		})
+	}
+	r := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
+	r.Header.Set("Origin", "http://localhost:5173")
+	r.Header.Set("Access-Control-Request-Method", "GET")
+	w := httptest.NewRecorder()
+	server.Handler().ServeHTTP(w, r)
+	if w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("CORS unexpectedly covers /healthz: %v", w.Header())
+	}
+}
+
 func TestSSEKeepaliveAndClientCancellation(t *testing.T) {
 	api, _ := testServer(t, 2, "1ms")
 	ctx, cancel := context.WithCancel(context.Background())
