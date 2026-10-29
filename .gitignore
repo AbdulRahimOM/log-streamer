@@ -2,9 +2,13 @@
 .env
 .env.*
 !.env.example
-/config.yaml
-/config.local.yaml
-/config.*.local.yaml
+
+# Ignore actual configuration files
+config.yaml
+config.*.yaml
+
+# Allow example configuration files
+!config.*.example.yaml
 
 # Local logs and generated artifacts
 /logs/
