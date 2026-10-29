@@ -121,7 +121,9 @@ func parseTimestamp(value any) (time.Time, bool) {
 
 func normalizeLevel(level string) string {
 	switch strings.ToUpper(strings.TrimSpace(level)) {
-	case "TRACE", "DEBUG":
+	case "TRACE":
+		return "TRACE"
+	case "DEBUG":
 		return "DEBUG"
 	case "INFO", "INFORMATION":
 		return "INFO"

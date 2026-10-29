@@ -30,7 +30,7 @@
     .source-0 { color: #88c0d0; } .source-1 { color: #b48ead; } .source-2 { color: #8fbcbb; }
     .source-3 { color: #ebcb8b; } .source-4 { color: #d08770; } .source-5 { color: #a3be8c; }
     .level { font-weight: 700; }
-    .DEBUG { color: #b48ead; } .INFO { color: #a3be8c; } .WARN { color: #ebcb8b; } .ERROR { color: #bf616a; } .UNKNOWN { color: #d8dee9; }
+    .TRACE { color: #b48ead; } .DEBUG { color: #b48ead; } .INFO { color: #a3be8c; } .WARN { color: #ebcb8b; } .ERROR { color: #bf616a; } .UNKNOWN { color: #d8dee9; }
     #empty { padding: 24px; color: #7b8492; }
     @media (max-width: 760px) {
       body { padding: 12px; }
@@ -61,7 +61,7 @@
     <label>Level
       <select id="level-filter" aria-label="Filter by level">
         <option value="">All levels</option>
-        <option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option><option>UNKNOWN</option>
+        <option>TRACE</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option><option>UNKNOWN</option>
       </select>
     </label>
     <button id="pause" type="button" aria-pressed="false">Pause</button>
@@ -133,7 +133,7 @@
         for (const event of matching) {
           const row = document.createElement('div');
           row.className = 'row';
-          const level = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'UNKNOWN'].includes(event.level) ? event.level : 'UNKNOWN';
+          const level = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'UNKNOWN'].includes(event.level) ? event.level : 'UNKNOWN';
           row.append(
             createCell('time', event.timestamp || ''),
             createCell(`source ${sourceClass(event.source || '')}`, event.source || ''),

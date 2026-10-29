@@ -151,9 +151,6 @@ func (s *Server) stream(publisher *logstream.Publisher) http.HandlerFunc {
 			if filter.Level == "WARNING" {
 				filter.Level = "WARN"
 			}
-			if filter.Level == "TRACE" {
-				filter.Level = "DEBUG"
-			}
 			if filter.Level == "ERR" || filter.Level == "FATAL" || filter.Level == "PANIC" {
 				filter.Level = "ERROR"
 			}
