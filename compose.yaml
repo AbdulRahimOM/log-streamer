@@ -2,7 +2,7 @@ services:
   logstreamer:
     build:
       context: .
-    image: logstreamer:local
+    image: ${DOCKERHUB_USERNAME:-local}/logstreamer:${IMAGE_TAG:-local}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${LOGSTREAMER_PORT:-8080}:8080"
