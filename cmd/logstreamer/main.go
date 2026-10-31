@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -10,11 +11,18 @@ import (
 
 	"github.com/abdulrahimom/logstreamer/internal/collectors"
 	"github.com/abdulrahimom/logstreamer/internal/config"
+	"github.com/abdulrahimom/logstreamer/internal/envfile"
 	"github.com/abdulrahimom/logstreamer/internal/httpapi"
 	"github.com/abdulrahimom/logstreamer/internal/logstream"
 )
 
 func main() {
+	loadLocalEnv := flag.Bool("load-local-env", false, "load .env for local development")
+	flag.Parse()
+	if err := envfile.LoadLocal(*loadLocalEnv); err != nil {
+		fmt.Fprintf(os.Stderr, "environment file error: %v\n", err)
+		os.Exit(1)
+	}
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)

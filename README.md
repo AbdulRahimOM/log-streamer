@@ -18,8 +18,14 @@ export LOGSTREAMER_INGEST_TOKEN="$(openssl rand -hex 32)"
 Start LogStreamer:
 
 ```sh
-go run ./cmd/logstreamer
+go run ./cmd/logstreamer --load-local-env
 ```
+
+The Go application does not load `.env` by default. Pass
+`--load-local-env` to load the nearest `.env` from the working directory or a
+parent; startup fails if that file is missing or invalid. Nonempty process
+environment values take precedence over `.env`. To skip `.env`, omit the flag
+and export the values you need. Docker Compose reads `.env` independently.
 
 Open <http://127.0.0.1:8080> to view the dashboard. The example config enables an HTTP source named `quickstart`. Send it a test log from another terminal:
 
@@ -31,7 +37,8 @@ curl -i \
   'http://127.0.0.1:8080/api/logs?source=quickstart'
 ```
 
-The token is required when an HTTP source is configured. The Go application does not load `.env` files; export the variable in your shell or configure it in your process manager.
+The token is required when an HTTP source is configured. For direct binary runs,
+either export the token or set it in `.env` and pass `--load-local-env`.
 
 ### Run with Docker Compose
 
