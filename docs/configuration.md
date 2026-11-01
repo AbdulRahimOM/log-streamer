@@ -60,6 +60,7 @@ The service validates the complete request before publishing and responds `202` 
 
 - `LOGSTREAMER_CONFIG`: configuration file path, default `config.yaml`.
 - `LOGSTREAMER_HTTP_ADDR`: overrides `server.listen_address`.
+- `LOGSTREAMER_CORS_ALLOWED_ORIGINS`: comma-separated exact origins that override `server.cors_allowed_origins` when nonempty.
 - `LOGSTREAMER_INGEST_TOKEN`: bearer token required when an HTTP source is configured. Keep it in deployment secrets and never in YAML.
 
 The Go application skips `.env` by default. To load the nearest `.env` from the working directory or a parent, start it with `--load-local-env`; the file must exist and be valid. Nonempty process values override values from `.env`, and application defaults apply to remaining settings. Without the flag, export values in the shell or configure them in the process manager. Docker Compose reads `.env` for interpolation independently of this flag. `LOGSTREAMER_PORT`, `LOGSTREAMER_CONFIG_FILE`, `LOGSTREAMER_FILE_PATH`, and `DOCKER_GID` are Compose-example variables, not application settings. `DOCKER_GID` is needed only with `compose.docker.yaml`.

@@ -108,11 +108,25 @@ func LoadFromEnv() (*Config, error) {
 	if value, ok := os.LookupEnv("LOGSTREAMER_HTTP_ADDR"); ok {
 		cfg.Server.ListenAddress = value
 	}
+	if value, ok := os.LookupEnv("LOGSTREAMER_CORS_ALLOWED_ORIGINS"); ok && strings.TrimSpace(value) != "" {
+		cfg.Server.CORSAllowedOrigins = splitOrigins(value)
+	}
 	cfg.IngestToken = os.Getenv("LOGSTREAMER_INGEST_TOKEN")
 	if err := cfg.ValidateRuntime(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func splitOrigins(value string) []string {
+	parts := strings.Split(value, ",")
+	origins := make([]string, 0, len(parts))
+	for _, origin := range parts {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }
 
 func (c *Config) applyDefaults() {
